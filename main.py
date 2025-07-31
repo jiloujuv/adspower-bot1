@@ -1,4 +1,21 @@
 import discord
+
+def create_embed(remaining_seconds: int, ready: bool) -> discord.Embed:
+    embed = discord.Embed(
+        title="AutoLogin Guide\nدليل تسجيل الدخول التلقائي",
+        description=(
+            "**Step 1:**\nDownload AdsPower Browser from here\n"
+            "**Step 2:**\nLogin to AdsPower using the provided credentials\n"
+            "**Step 3:**\nClick the button below to get your Authenticator Verification Code and enter it.\n"
+            f"**Time remaining for current code:** {remaining_seconds}s {'✅ Ready' if ready else '❌ Not Ready'}\n"
+            f"الوقت المتبقي للرمز الحالي: {remaining_seconds}s {'✅ جاهز' if ready else '❌ غير جاهز'}\n"
+            "**Step 4:**\nClick OPEN on the profile you want to access\n\n"
+            "⏳ انتظر للحصول على الرمز ⏳"
+        ),
+        color=discord.Color.red()
+    )
+    return embed
+
 from discord.ext import commands
 import pyotp
 import os
