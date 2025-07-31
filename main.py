@@ -1,136 +1,59 @@
 import discord
-
-def create_embed(remaining_seconds: int, ready: bool) -> discord.Embed:
-    embed = discord.Embed(
-        title="AutoLogin Guide\nدليل تسجيل الدخول التلقائي",
-        description=(
-            "**Step 1:**\nDownload AdsPower Browser from here\n"
-            "**Step 2:**\nLogin to AdsPower using the provided credentials\n"
-            "**Step 3:**\nClick the button below to get your Authenticator Verification Code and enter it.\n"
-            f"**Time remaining for current code:** {remaining_seconds}s {'✅ Ready' if ready else '❌ Not Ready'}\n"
-            f"الوقت المتبقي للرمز الحالي: {remaining_seconds}s {'✅ جاهز' if ready else '❌ غير جاهز'}\n"
-            "**Step 4:**\nClick OPEN on the profile you want to access\n\n"
-            "⏳ انتظر للحصول على الرمز ⏳"
-        ),
-        color=discord.Color.red()
-    )
-    return embed
-
-from discord.ext import commands
+from discord.ext import commands, tasks
 import pyotp
-import os
 import asyncio
-from flask import Flask
-from threading import Thread
-import datetime
+import os
+from keep_alive import keep_alive
 
+# إعدادات
+TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 
+totp = pyotp.TOTP("2Y6ZQ2MMIBHAQZXB6E5ZWNJUCI3OHS4P")  
 
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-
-app = Flask('keep_alive')
-
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-
-TOTP_SECRET = os.getenv("TOTP_SECRET") 
-
-
-weekly_limit = 10
-used_codes = 0
-
-
-button_enabled = False
-
-async def toggle_button_state():
-    global button_enabled
-    while True:
-        button_enabled = True
-        await asyncio.sleep(5)
-        button_enabled = False
-        await asyncio.sleep(25) 
-
-
-@bot.event
-async def on_ready():
-    print(f"[✅] Logged in as {bot.user}")
-    
-    channel = bot.get_channel(1394380083623366676)  
-    if channel:
-        view = CodeButton() 
-        await channel.send(embed=create_embed(remaining_seconds=0, ready=True), view=view)
-
-
+cooldown_active = False 
 
 class CodeButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+        self.add_item(GetCodeButton())
 
-    @discord.ui.button(label="Click to Get Code | اضغط للحصول على الرمز", style=discord.ButtonStyle.danger)
-    async def get_code(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global used_codes
+class GetCodeButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🔴 Click to Get Code | انتظر للحصول على الرمز", style=discord.ButtonStyle.danger)
 
-       
-        if not button_enabled:
+    async def callback(self, interaction: discord.Interaction):
+        global cooldown_active
+        if cooldown_active:
             await interaction.response.send_message("⏳ الزر غير متاح الآن، انتظر قليلًا...", ephemeral=True)
             return
 
-        if used_codes >= weekly_limit:
-            await interaction.response.send_message("❌ لقد استخدمت جميع الرموز لهذا الأسبوع.", ephemeral=True)
-            return
-
-     
-        totp = pyotp.TOTP(TOTP_SECRET)
+        cooldown_active = True
         code = totp.now()
-        time_left = totp.interval - datetime.datetime.now().second % totp.interval
-        used_codes += 1
-
-        msg = (
-            f"📲 Your 2FA code is: **{code}** (expires in {time_left}s)\n"
-            f"🔢 You have {weekly_limit - used_codes} codes left this week.\n"
-            f"رمز المصادقة الخاص بك هو: **{code}** (ينتهي خلال {time_left}s)\n"
-            f"تبقّى {weekly_limit - used_codes} رمزًا لهذا الأسبوع."
+        time_remaining = totp.interval - (discord.utils.utcnow().timestamp() % totp.interval)
+        message = await interaction.response.send_message(
+            f"📲 Your 2FA code is: **{code}** (expires in {int(time_remaining)}s)\nرمز المصادقة الخاص بك: **{code}**", ephemeral=True
         )
 
-       
-        code_msg = await interaction.response.send_message(msg)
-        await asyncio.sleep(20)
-        await interaction.delete_original_response()
+        await asyncio.sleep(20)  # حذف الرسالة بعد 20 ثانية
+        await message.delete_original_response()
+        await asyncio.sleep(10)  # انتظار حتى يكمل 30 ثانية
+        cooldown_active = False
 
+@bot.event
+async def on_ready():
+    print(f"[✅] Logged in as {bot.user}")
+    send_button_message.start()
 
-@bot.command()
-async def login(ctx):
-    view = CodeButton()
-    totp = pyotp.TOTP(TOTP_SECRET)
-    time_left = totp.interval - datetime.datetime.now().second % totp.interval
-
-    msg = (
-        "**AutoLogin Guide**\n"
-        "دليل تسجيل الدخول التلقائي\n"
-        "**Step 1:** Download AdsPower Browser from here\n"
-        "**Step 2:** Login to AdsPower using the provided credentials\n"
-        "**Step 3:** Click the button below to get your Authenticator Verification Code and enter it.\n"
-        f"**Time remaining for current code: {time_left}s ✅ Ready**\n"
-        f"الوقت المتبقي للرمز الحالي: {time_left}s ✅ جاهز\n"
-        "**Step 4:** Click OPEN on the profile you want to access\n"
-        "⏳ انتظر للحصول على الرمز ⏳"
-    )
-
-    await ctx.send(msg, view=view)
-
+@tasks.loop(seconds=30)
+async def send_button_message():
+    global cooldown_active
+    cooldown_active = False
+    channel = bot.get_channel(CHANNEL_ID)
+    if channel:
+        await channel.send("✅ اضغط الزر للحصول على الكود:", view=CodeButton())
 
 keep_alive()
-bot.run(BOT_TOKEN)
+bot.run(TOKEN)
