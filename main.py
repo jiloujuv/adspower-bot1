@@ -1,59 +1,64 @@
+import os
 import discord
-from discord.ext import commands, tasks
 import pyotp
 import asyncio
-import os
+from discord.ext import commands
 from keep_alive import keep_alive
 
-# إعدادات
+
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
 TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))  
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+TOTP_SECRET = os.getenv("TOTP_SECRET")  # مفتاح 2FA من AdsPower
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
-
-totp = pyotp.TOTP("2Y6ZQ2MMIBHAQZXB6E5ZWNJUCI3OHS4P")  
-
-cooldown_active = False 
 
 class CodeButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(GetCodeButton())
+        self.button = discord.ui.Button(label="Click to Get Code | اضغط للحصول على الرمز", style=discord.ButtonStyle.danger)
+        self.button.callback = self.send_code
+        self.add_item(self.button)
+        self.button.disabled = False  
+        self.message = None  
+        self.code_used = False
 
-class GetCodeButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="🔴 Click to Get Code | انتظر للحصول على الرمز", style=discord.ButtonStyle.danger)
+    async def disable_button(self):
+        await asyncio.sleep(5)
+        self.button.disabled = True
+        await self.message.edit(view=self)
 
-    async def callback(self, interaction: discord.Interaction):
-        global cooldown_active
-        if cooldown_active:
-            await interaction.response.send_message("⏳ الزر غير متاح الآن، انتظر قليلًا...", ephemeral=True)
+    async def send_code(self, interaction: discord.Interaction):
+        if self.code_used:
+            await interaction.response.send_message("🔁 انتظر لإعادة تفعيل الزر...", ephemeral=True)
             return
 
-        cooldown_active = True
+        self.code_used = True
+        totp = pyotp.TOTP(TOTP_SECRET)
         code = totp.now()
-        time_remaining = totp.interval - (discord.utils.utcnow().timestamp() % totp.interval)
-        message = await interaction.response.send_message(
-            f"📲 Your 2FA code is: **{code}** (expires in {int(time_remaining)}s)\nرمز المصادقة الخاص بك: **{code}**", ephemeral=True
-        )
+        remaining = totp.interval - (int(time.time()) % totp.interval)
 
-        await asyncio.sleep(20)  # حذف الرسالة بعد 20 ثانية
-        await message.delete_original_response()
-        await asyncio.sleep(10)  # انتظار حتى يكمل 30 ثانية
-        cooldown_active = False
+        embed = discord.Embed(title="Your 2FA Code", color=discord.Color.red())
+        embed.add_field(name="🔐 Code:", value=f"**{code}** (expires in {remaining}s)", inline=False)
+        embed.set_footer(text="🔔 سيتم حذف هذه الرسالة بعد 20 ثانية.")
+        code_message = await interaction.response.send_message(embed=embed)
+        await asyncio.sleep(20)
+        await (await interaction.original_response()).delete()
+
+    async def start_timer(self):
+        await self.disable_button()
 
 @bot.event
 async def on_ready():
     print(f"[✅] Logged in as {bot.user}")
-    send_button_message.start()
 
-@tasks.loop(seconds=30)
-async def send_button_message():
-    global cooldown_active
-    cooldown_active = False
-    channel = bot.get_channel(CHANNEL_ID)
-    if channel:
-        await channel.send("✅ اضغط الزر للحصول على الكود:", view=CodeButton())
+@bot.command(name="getcode")
+async def get_code(ctx):
+    view = CodeButton()
+    view.message = await ctx.send("🔴 اضغط الزر للحصول على رمز AdsPower", view=view)
+    await view.start_timer()
 
 keep_alive()
 bot.run(TOKEN)
