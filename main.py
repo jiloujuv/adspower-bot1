@@ -53,7 +53,7 @@ async def on_ready():
     
     channel = bot.get_channel(1394380083623366676)  
     if channel:
-        view = GetCodeButton()  # استدعاء الزر التفاعلي
+        view = CodeButton() 
         await channel.send(embed=create_embed(remaining_seconds=0, ready=True), view=view)
 
 
