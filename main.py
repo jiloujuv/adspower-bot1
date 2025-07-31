@@ -44,16 +44,21 @@ async def toggle_button_state():
         button_enabled = True
         await asyncio.sleep(5)
         button_enabled = False
-        await asyncio.sleep(25)  # تبقى 30 ثانية إجمالاً
+        await asyncio.sleep(25) 
 
 
 @bot.event
 async def on_ready():
-    print(f"[INFO] Logged in as {bot.user}")
-    asyncio.create_task(toggle_button_state())
+    print(f"[✅] Logged in as {bot.user}")
+    
+    channel = bot.get_channel(1394380083623366676)  
+    if channel:
+        view = GetCodeButton()  # استدعاء الزر التفاعلي
+        await channel.send(embed=create_embed(remaining_seconds=0, ready=True), view=view)
 
 
-class CodeButton(discord.ui.View):1394380083623366676
+
+class CodeButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
